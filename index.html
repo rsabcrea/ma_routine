@@ -23,9 +23,59 @@ button:disabled{opacity:.4}
 .tabs{display:flex;gap:8px;margin:18px 0}
 .tabs button{flex:1}
 .tabs .selected{background:#7768d8;color:white}
-.clock{width:min(78vw,320px);aspect-ratio:1;border-radius:50%;margin:20px auto;display:grid;place-items:center;position:relative;background:#eee}
-.clock:after{content:"";position:absolute;inset:13px;border-radius:50%;background:conic-gradient(from -90deg,transparent var(--progress),#ffffffbd var(--progress) 360deg)}
-.center{z-index:1;background:white;width:55%;height:55%;border-radius:50%;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:10px;box-shadow:0 2px 12px #0002}
+
+/* Camembert avec illustrations */
+.clock{
+ width:min(78vw,320px);
+ aspect-ratio:1;
+ border-radius:50%;
+ margin:20px auto;
+ display:grid;
+ place-items:center;
+ position:relative;
+ overflow:hidden;
+ background:#eee;
+}
+.clock:after{
+ content:"";
+ position:absolute;
+ inset:13px;
+ border-radius:50%;
+ background:conic-gradient(
+   from -90deg,
+   #ffffffbd 0deg var(--progress),
+   transparent var(--progress) 360deg
+ );
+ z-index:2;
+ pointer-events:none;
+}
+.sector-art{
+ position:absolute;
+ display:grid;
+ place-items:center;
+ transform:translate(-50%,-50%);
+ z-index:1;
+ pointer-events:none;
+}
+.sector-art svg{
+ width:100%;
+ height:100%;
+ overflow:visible;
+}
+.center{
+ z-index:3;
+ background:white;
+ width:55%;
+ height:55%;
+ border-radius:50%;
+ display:flex;
+ flex-direction:column;
+ justify-content:center;
+ align-items:center;
+ text-align:center;
+ padding:10px;
+ box-shadow:0 2px 12px #0002;
+}
 #time{font-size:30px;font-weight:800}
 #current{font-size:13px;margin-top:5px}
 #status{text-align:center;color:#777;min-height:22px}
@@ -224,116 +274,321 @@ function characterButtons(){
  $("girlButton").classList.toggle("active",character==="girl");
 }
 function totalSeconds(){return tasks.reduce((s,t)=>s+t.minutes*60,0)}
-function format(sec){sec=Math.max(0,Math.ceil(sec));return String(Math.floor(sec/60)).padStart(2,"0")+":"+String(sec%60).padStart(2,"0")}
+function format(sec){
+ sec=Math.max(0,Math.ceil(sec));
+ return String(Math.floor(sec/60)).padStart(2,"0")+":"+String(sec%60).padStart(2,"0");
+}
 function currentTask(){
  let p=elapsed;
- for(const t of tasks){if(p<t.minutes*60)return t;p-=t.minutes*60}
+ for(const t of tasks){
+  if(p<t.minutes*60)return t;
+  p-=t.minutes*60;
+ }
  return null;
 }
+
+/* Dessine les secteurs colorés et place une illustration dans chacun */
 function draw(){
  const total=totalSeconds();
- const pieces=[];let angle=0;
- tasks.forEach(t=>{const next=angle+(total?t.minutes*60/total*360:0);pieces.push(`${t.color} ${angle}deg ${next}deg`);angle=next});
- $("clock").style.background=pieces.length?`conic-gradient(from -90deg,${pieces.join(",")})`:"#eee";
- $("clock").style.setProperty("--progress",(total?Math.min(360,elapsed/total*360):0)+"deg");
+ const clock=$("clock");
+ const pieces=[];
+ let angle=0;
+
+ // Retire les anciennes illustrations avant de redessiner
+ clock.querySelectorAll(".sector-art").forEach(el=>el.remove());
+
+ tasks.forEach(t=>{
+  const fraction=total?t.minutes*60/total:0;
+  const next=angle+fraction*360;
+  pieces.push(`${t.color} ${angle}deg ${next}deg`);
+
+  if(fraction>0){
+   const middle=angle+(next-angle)/2;
+   const radians=middle*Math.PI/180;
+
+   // Position de l'image à l'intérieur de son secteur
+   const x=50+Math.sin(radians)*31;
+   const y=50-Math.cos(radians)*31;
+
+   // Adapte la taille à la largeur du secteur
+   const radius=clock.clientWidth*0.31;
+   const arcLength=2*Math.PI*radius*fraction;
+   const size=Math.max(25,Math.min(56,arcLength*0.58));
+
+   const art=document.createElement("div");
+   art.className="sector-art";
+   art.style.left=x+"%";
+   art.style.top=y+"%";
+   art.style.width=size+"px";
+   art.style.height=size+"px";
+   art.innerHTML=artSVG(t.art);
+   art.setAttribute("aria-label",t.name);
+   clock.appendChild(art);
+  }
+  angle=next;
+ });
+
+ clock.style.background=pieces.length
+  ?`conic-gradient(from -90deg,${pieces.join(",")})`
+  :"#eee";
+
+ clock.style.setProperty(
+  "--progress",
+  (total?Math.min(360,elapsed/total*360):0)+"deg"
+ );
+
  $("time").textContent=format(total-elapsed);
  const active=currentTask();
  $("current").textContent=active?active.name:(total?"Routine terminée !":"Ajoute des activités");
  $("total").textContent="Durée totale : "+Math.ceil(total/60)+" min";
- $("status").textContent=!total?"Ajoute des activités dans l'espace Parent.":elapsed>=total?"Bravo ! Routine terminée 🎉":running?"C'est parti !":elapsed>0?"Routine en pause.":"Prêt à commencer.";
+ $("status").textContent=!total
+  ?"Ajoute des activités dans l'espace Parent."
+  :elapsed>=total
+   ?"Bravo ! Routine terminée 🎉"
+   :running
+    ?"C'est parti !"
+    :elapsed>0
+     ?"Routine en pause."
+     :"Prêt à commencer !";
+
  $("start").disabled=running||!total||elapsed>=total;
  $("pause").disabled=!running;
 }
-function stop(){running=false;clearInterval(timer);timer=null}
-function reset(){stop();elapsed=0;lastTick=null}
+
+function stop(){
+ running=false;
+ clearInterval(timer);
+ timer=null;
+}
+function reset(){
+ stop();
+ elapsed=0;
+ lastTick=null;
+}
 function renderTasks(){
  $("tasks").innerHTML="";
  tasks.forEach(t=>{
-  const row=document.createElement("div");row.className="task";
-  const art=document.createElement("div");art.className="task-art";art.style.background=t.color;art.innerHTML=artSVG(t.art);
-  const info=document.createElement("div");info.className="task-info";
-  const name=document.createElement("strong");name.textContent=t.name;
-  const detail=document.createElement("small");detail.textContent=t.minutes+" min";
-  info.append(name,detail);row.append(art,info);$("tasks").append(row);
+  const row=document.createElement("div");
+  row.className="task";
+  const art=document.createElement("div");
+  art.className="task-art";
+  art.style.background=t.color;
+  art.innerHTML=artSVG(t.art);
+  const info=document.createElement("div");
+  info.className="task-info";
+  const name=document.createElement("strong");
+  name.textContent=t.name;
+  const detail=document.createElement("small");
+  detail.textContent=t.minutes+" min";
+  info.append(name,detail);
+  row.append(art,info);
+  $("tasks").append(row);
  });
 }
 function renderParent(){
  $("parentTasks").innerHTML="";
  tasks.forEach((t,i)=>{
-  const row=document.createElement("div");row.className="task";
-  const art=document.createElement("div");art.className="task-art";art.style.background=t.color;art.innerHTML=artSVG(t.art);
-  const info=document.createElement("div");info.className="task-info";
-  const name=document.createElement("strong");name.textContent=t.name;
-  const detail=document.createElement("small");detail.textContent=t.minutes+" minutes";
+  const row=document.createElement("div");
+  row.className="task";
+  const art=document.createElement("div");
+  art.className="task-art";
+  art.style.background=t.color;
+  art.innerHTML=artSVG(t.art);
+  const info=document.createElement("div");
+  info.className="task-info";
+  const name=document.createElement("strong");
+  name.textContent=t.name;
+  const detail=document.createElement("small");
+  detail.textContent=t.minutes+" minutes";
   info.append(name,detail);
-  const actions=document.createElement("div");actions.className="task-actions";
-  const up=document.createElement("button");up.textContent="↑";up.className="secondary";up.disabled=i===0;
-  up.onclick=()=>{[tasks[i-1],tasks[i]]=[tasks[i],tasks[i-1]];changed()};
-  const down=document.createElement("button");down.textContent="↓";down.className="secondary";down.disabled=i===tasks.length-1;
-  down.onclick=()=>{[tasks[i+1],tasks[i]]=[tasks[i],tasks[i+1]];changed()};
-  const edit=document.createElement("button");edit.textContent="✏️";edit.className="secondary";
+  const actions=document.createElement("div");
+  actions.className="task-actions";
+
+  const up=document.createElement("button");
+  up.textContent="↑";
+  up.className="secondary";
+  up.disabled=i===0;
+  up.onclick=()=>{
+   [tasks[i-1],tasks[i]]=[tasks[i],tasks[i-1]];
+   changed();
+  };
+
+  const down=document.createElement("button");
+  down.textContent="↓";
+  down.className="secondary";
+  down.disabled=i===tasks.length-1;
+  down.onclick=()=>{
+   [tasks[i+1],tasks[i]]=[tasks[i],tasks[i+1]];
+   changed();
+  };
+
+  const edit=document.createElement("button");
+  edit.textContent="✏️";
+  edit.className="secondary";
   edit.onclick=()=>editTask(i);
-  const del=document.createElement("button");del.textContent="✕";del.className="danger";
-  del.onclick=()=>{if(confirm("Supprimer cette activité ?")){tasks.splice(i,1);changed()}};
-  actions.append(up,down,edit,del);row.append(art,info,actions);$("parentTasks").append(row);
+
+  const del=document.createElement("button");
+  del.textContent="✕";
+  del.className="danger";
+  del.onclick=()=>{
+   if(confirm("Supprimer cette activité ?")){
+    tasks.splice(i,1);
+    changed();
+   }
+  };
+
+  actions.append(up,down,edit,del);
+  row.append(art,info,actions);
+  $("parentTasks").append(row);
  });
  updateActivitySelect();
 }
-function changed(){reset();save();renderTasks();renderParent();draw()}
+function changed(){
+ reset();
+ save();
+ renderTasks();
+ renderParent();
+ draw();
+}
 function editTask(i){
  const t=tasks[i];
- const name=prompt("Nom de l'activité :",t.name);if(name===null)return;
- const minutes=prompt("Durée en minutes :",t.minutes);if(minutes===null)return;
+ const name=prompt("Nom de l'activité :",t.name);
+ if(name===null)return;
+ const minutes=prompt("Durée en minutes :",t.minutes);
+ if(minutes===null)return;
  const n=Number(minutes);
- if(!name.trim()||!Number.isInteger(n)||n<1||n>240){alert("Vérifie le nom et la durée (1 à 240 minutes).");return}
- t.name=name.trim();t.minutes=n;
+ if(!name.trim()||!Number.isInteger(n)||n<1||n>240){
+  alert("Vérifie le nom et la durée (1 à 240 minutes).");
+  return;
+ }
+ t.name=name.trim();
+ t.minutes=n;
  const color=prompt("Couleur hexadécimale (ex. #a9d8f5) :",t.color);
  if(color!==null&&/^#[0-9a-fA-F]{6}$/.test(color))t.color=color;
  changed();
 }
 function updateActivitySelect(){
- const select=$("activitySelect");select.innerHTML="";
- tasks.forEach((t,i)=>{const o=document.createElement("option");o.value=i;o.textContent=t.name;select.append(o)});
+ const select=$("activitySelect");
+ select.innerHTML="";
+ tasks.forEach((t,i)=>{
+  const o=document.createElement("option");
+  o.value=i;
+  o.textContent=t.name;
+  select.append(o);
+ });
  drawArtGrid();
 }
 function drawArtGrid(){
- const grid=$("artGrid");grid.innerHTML="";
+ const grid=$("artGrid");
+ grid.innerHTML="";
  const index=Number($("activitySelect").value||0);
  const selected=tasks[index];
+
  illustrations.forEach(([id,label])=>{
-  const b=document.createElement("button");b.className="art-choice"+(selected&&selected.art===id?" active":"");
+  const b=document.createElement("button");
+  b.className="art-choice"+(selected&&selected.art===id?" active":"");
   b.innerHTML=artSVG(id)+`<span>${label}</span>`;
-  b.onclick=()=>{if(!selected)return;selected.art=id;changed();$("activitySelect").value=String(index);drawArtGrid()};
+  b.onclick=()=>{
+   if(!selected)return;
+   selected.art=id;
+   changed();
+   $("activitySelect").value=String(index);
+   drawArtGrid();
+  };
   grid.append(b);
  });
 }
 function updateNewArt(){
  $("newArt").innerHTML="";
- illustrations.forEach(([id,label])=>{const o=document.createElement("option");o.value=id;o.textContent=label;$("newArt").append(o)});
+ illustrations.forEach(([id,label])=>{
+  const o=document.createElement("option");
+  o.value=id;
+  o.textContent=label;
+  $("newArt").append(o);
+ });
 }
+
 $("activitySelect").onchange=drawArtGrid;
-$("boyButton").onclick=()=>{character="boy";save();characterButtons();renderTasks();renderParent()};
-$("girlButton").onclick=()=>{character="girl";save();characterButtons();renderTasks();renderParent()};
-$("childTab").onclick=()=>{$("childPanel").classList.remove("hidden");$("parentPanel").classList.add("hidden");$("childTab").className="selected";$("parentTab").className="secondary"};
-$("parentTab").onclick=()=>{$("parentPanel").classList.remove("hidden");$("childPanel").classList.add("hidden");$("parentTab").className="selected";$("childTab").className="secondary";renderParent()};
+$("boyButton").onclick=()=>{
+ character="boy";
+ save();
+ characterButtons();
+ renderTasks();
+ renderParent();
+ draw();
+};
+$("girlButton").onclick=()=>{
+ character="girl";
+ save();
+ characterButtons();
+ renderTasks();
+ renderParent();
+ draw();
+};
+$("childTab").onclick=()=>{
+ $("childPanel").classList.remove("hidden");
+ $("parentPanel").classList.add("hidden");
+ $("childTab").className="selected";
+ $("parentTab").className="secondary";
+};
+$("parentTab").onclick=()=>{
+ $("parentPanel").classList.remove("hidden");
+ $("childPanel").classList.add("hidden");
+ $("parentTab").className="selected";
+ $("childTab").className="secondary";
+ renderParent();
+};
 $("add").onclick=()=>{
- const name=$("newName").value.trim(),minutes=Number($("newDuration").value);
- if(!name||!Number.isInteger(minutes)||minutes<1||minutes>240){alert("Indique un nom et une durée entre 1 et 240 minutes.");return}
- tasks.push({name,minutes,color:$("newColor").value,art:$("newArt").value});
- $("newName").value="";changed();
+ const name=$("newName").value.trim();
+ const minutes=Number($("newDuration").value);
+ if(!name||!Number.isInteger(minutes)||minutes<1||minutes>240){
+  alert("Indique un nom et une durée entre 1 et 240 minutes.");
+  return;
+ }
+ tasks.push({
+  name,
+  minutes,
+  color:$("newColor").value,
+  art:$("newArt").value
+ });
+ $("newName").value="";
+ changed();
 };
 $("start").onclick=()=>{
  if(running||!totalSeconds()||elapsed>=totalSeconds())return;
- running=true;lastTick=Date.now();timer=setInterval(tick,250);draw();
+ running=true;
+ lastTick=Date.now();
+ timer=setInterval(tick,250);
+ draw();
 };
 function tick(){
- const now=Date.now();if(lastTick!==null)elapsed+=(now-lastTick)/1000;lastTick=now;
- if(elapsed>=totalSeconds()){elapsed=totalSeconds();stop()}
+ const now=Date.now();
+ if(lastTick!==null)elapsed+=(now-lastTick)/1000;
+ lastTick=now;
+ if(elapsed>=totalSeconds()){
+  elapsed=totalSeconds();
+  stop();
+ }
  draw();
 }
-$("pause").onclick=()=>{tick();stop();draw()};
-$("reset").onclick=()=>{reset();draw()};
-characterButtons();updateNewArt();renderTasks();renderParent();draw();
+$("pause").onclick=()=>{
+ tick();
+ stop();
+ draw();
+};
+$("reset").onclick=()=>{
+ reset();
+ draw();
+};
+
+// Redessine les illustrations si la taille du cercle change
+window.addEventListener("resize",draw);
+
+characterButtons();
+updateNewArt();
+renderTasks();
+renderParent();
+draw();
 </script>
 </body>
 </html>
